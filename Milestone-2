@@ -1,0 +1,51 @@
+
+import cv2
+import mediapipe as mp
+import math
+
+mp_hands = mp.solutions.hands
+mp_draw = mp.solutions.drawing_utils
+
+hands = mp_hands.Hands(
+    max_num_hands=1,
+    min_detection_confidence=0.7,
+    min_tracking_confidence=0.7
+)
+
+cap = cv2.VideoCapture(0)
+
+while True:
+    success, img = cap.read()
+    if not success:
+        break
+    
+    img = cv2.flip(img, 1)
+    imgRGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    results = hands.process(imgRGB)
+
+    if results.multi_hand_landmarks:
+        for handLms in results.multi_hand_landmarks:
+            mp_draw.draw_landmarks(img, handLms, mp_hands.HAND_CONNECTIONS)
+
+            h, w, c = img.shape
+            lm = handLms.landmark
+
+            x1, y1 = int(lm[4].x * w), int(lm[4].y * h)
+            x2, y2 = int(lm[8].x * w), int(lm[8].y * h)
+
+            cv2.circle(img, (x1, y1), 8, (255, 0, 0), cv2.FILLED)
+            cv2.circle(img, (x2, y2), 8, (255, 0, 0), cv2.FILLED)
+            cv2.line(img, (x1, y1), (x2, y2), (255, 0, 0), 2)
+
+            distance = math.hypot(x2 - x1, y2 - y1)
+
+            cv2.putText(img, f"Distance: {int(distance)} px",
+                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.8, (0, 255, 0), 2)
+
+    cv2.imshow("Milestone 2 - Thumb Index Distance", img)
+    if cv2.waitKey(1) & 0xFF == 27: 
+        break
+
+cap.release()
+cv2.destroyAllWindows()
