@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Gesture Volume Control Dashboard</title>
+
+<style>
+body {
+    margin: 0;
+    background: #0b1220;
+    color: #e5e7eb;
+    font-family: "Segoe UI", Arial, sans-serif;
+}
+
+h2 {
+    margin: 0 0 8px;
+    font-size: 16px;
+    color: #cbd5f5;
+}
+
+.dashboard {
+    display: grid;
+    grid-template-columns: 420px 1fr;
+    gap: 20px;
+    padding: 20px;
+}
+
+.card {
+    background: #111827;
+    border-radius: 14px;
+    padding: 15px;
+    box-shadow: 0 0 0 1px #1f2937;
+}
+
+/* CAMERA */
+.camera img {
+    width: 100%;
+    border-radius: 12px;
+    border: 2px solid #334155;
+}
+
+.circle-box {
+    margin: 15px auto 0;
+    width: 140px;
+    height: 140px;
+    position: relative;
+}
+
+svg { transform: rotate(-90deg); }
+
+.circle-text {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    font-weight: bold;
+}
+
+/* INFO */
+.info {
+    margin-top: 10px;
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+.dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 6px;
+}
+.green { background: #22c55e; }
+.red { background: #ef4444; }
+
+/* GRAPH */
+.graph canvas {
+    width: 100%;
+    height: 300px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="dashboard">
+
+    <!-- LEFT -->
+    <div class="card camera">
+        <h2>Camera Feed</h2>
+        <img src="{{ url_for('video_feed') }}">
+
+        <!-- Circular Volume -->
+        <div class="circle-box">
+            <svg width="140" height="140">
+                <circle cx="70" cy="70" r="60"
+                        stroke="#1f2937" stroke-width="10" fill="none"/>
+                <circle id="progress"
+                        cx="70" cy="70" r="60"
+                        stroke="#22c55e"
+                        stroke-width="10"
+                        fill="none"
+                        stroke-linecap="round"
+                        stroke-dasharray="377"
+                        stroke-dashoffset="377"/>
+            </svg>
+            <div class="circle-text" id="circleText">0%</div>
+        </div>
+
+        <div class="info">
+            📏 Distance: <span id="dist">0</span><br>
+            🎧 Status: <b id="status">ACTIVE</b><br>
+            ✋ Hand: <span id="hand"><span class="dot red"></span>NO HAND</span><br>
+            ⚡ FPS: <span id="fps">0</span>
+        </div>
+    </div>
+
+    <!-- RIGHT -->
+    <div class="card graph">
+        <h2>Live Volume Analysis</h2>
+        <canvas id="volumeGraph" width="900" height="300"></canvas>
+    </div>
+
+</div>
+
+<script>
+/* ---------- GRAPH ---------- */
+const canvas = document.getElementById("volumeGraph");
+const ctx = canvas.getContext("2d");
+
+let data = new Array(180).fill(0);
+let smooth = [];
+let muted = false;
+
+function drawGrid() {
+    ctx.strokeStyle = "#1f2937";
+    ctx.lineWidth = 1;
+
+    for (let i = 0; i <= 10; i++) {
+        let y = (i / 10) * canvas.height;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+
+        ctx.fillStyle = "#64748b";
+        ctx.font = "11px Segoe UI";
+        ctx.fillText(`${100 - i * 10}%`, 5, y - 2);
+    }
+}
+
+function drawLine(arr, color, width, glow=false) {
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.shadowBlur = glow ? 10 : 0;
+    ctx.shadowColor = color;
+
+    arr.forEach((v, i) => {
+        const x = (i / (arr.length - 1)) * canvas.width;
+        const y = canvas.height - (v / 100) * canvas.height;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+}
+
+function drawPeak(arr) {
+    const peak = Math.max(...arr);
+    const idx = arr.indexOf(peak);
+    const x = (idx / (arr.length - 1)) * canvas.width;
+    const y = canvas.height - (peak / 100) * canvas.height;
+
+    ctx.fillStyle = "#facc15";
+    ctx.beginPath();
+    ctx.arc(x, y, 5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillText(`${peak}%`, x + 6, y - 6);
+}
+
+function drawGraph() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawGrid();
+
+    drawLine(data, muted ? "#ef4444" : "#22c55e", 2, true);
+    drawLine(smooth, "#38bdf8", 1);
+    drawPeak(data);
+
+    requestAnimationFrame(drawGraph);
+}
+drawGraph();
+
+/* ---------- CIRCLE ---------- */
+const progress = document.getElementById("progress");
+const circleText = document.getElementById("circleText");
+const CIRC = 377;
+
+/* ---------- FPS ---------- */
+let last = performance.now();
+function fpsCounter() {
+    const now = performance.now();
+    document.getElementById("fps").innerText = Math.round(1000 / (now - last));
+    last = now;
+    requestAnimationFrame(fpsCounter);
+}
+fpsCounter();
+
+/* ---------- DATA ---------- */
+function fetchData() {
+    fetch("/get_volume")
+        .then(r => r.json())
+        .then(d => {
+            document.getElementById("dist").innerText = d.dist;
+            document.getElementById("status").innerText = d.mute ? "MUTED" : "ACTIVE";
+
+            muted = d.mute;
+
+            const hand = document.getElementById("hand");
+            hand.innerHTML = d.hand_detected
+                ? `<span class="dot green"></span>HAND DETECTED`
+                : `<span class="dot red"></span>NO HAND`;
+
+            const v = d.vol;
+            data.push(v);
+            if (data.length > 180) data.shift();
+
+            smooth = data.map((_, i, a) =>
+                Math.round(a.slice(Math.max(0, i - 5), i + 1)
+                .reduce((s, x) => s + x, 0) / Math.min(6, i + 1)));
+
+            progress.style.strokeDashoffset = CIRC - (v / 100) * CIRC;
+            progress.style.stroke = muted ? "#ef4444" : "#22c55e";
+            circleText.innerText = `${v}%`;
+        });
+}
+setInterval(fetchData, 80);
+</script>
+
+</body>
+</html>
